@@ -3,7 +3,6 @@ import { BrowserModule } from '@angular/platform-browser';
 import { ReactiveFormsModule } from '@angular/forms';
 import { HttpClientModule, HTTP_INTERCEPTORS } from '@angular/common/http';
 
-
 import { fakeBackendProvider } from './_helpers/fake-backend';
 
 import { AppRoutingModule } from './app-routing.module';
@@ -31,8 +30,8 @@ import { environment } from '../environments/environment';
         { provide: HTTP_INTERCEPTORS, useClass: JwtInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
 
-        // Stage A: fake backend enabled for demo
-        fakeBackendProvider
+        // provider used to create fake backend
+        ...(environment.production ? [] : [fakeBackendProvider])
     ],
     bootstrap: [AppComponent]
 })
