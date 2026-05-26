@@ -17,11 +17,11 @@ function saveUsers(users: Account[]) {
     localStorage.setItem(usersKey, JSON.stringify(users));
 }
 
-// helper to generate a simple fake jwt token (not secure)
+// Fix 1 — include role in JWT payload
 function generateJwtToken(user: any) {
-    // simple payload with expiry 15 minutes
     const payload = {
         sub: user.id,
+        role: user.role, // ← added role
         exp: Math.floor(Date.now() / 1000) + (15 * 60)
     };
     return btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })) + '.' + btoa(JSON.stringify(payload)) + '.signature';
@@ -32,7 +32,6 @@ export class FakeBackendInterceptor implements HttpInterceptor {
     intercept(request: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
         const { url, method, headers, body } = request;
 
-        // wrap in delayed observable to simulate server api call
         return of(null).pipe(mergeMap(() => {
             // authenticate
             if (url.endsWith('/accounts/authenticate') && method === 'POST') {
@@ -41,26 +40,27 @@ export class FakeBackendInterceptor implements HttpInterceptor {
                 const user = users.find((x: any) => x.email === email && x.password === password);
                 if (!user) return error('Email or password is incorrect');
 
-                // ensure verified
                 if (!user.isVerified) return error('Email not verified');
 
                 const jwtToken = generateJwtToken(user);
                 const account = { ...user, jwtToken };
 
-                // set a fake refresh token in localStorage (in a real app this is a cookie)
                 localStorage.setItem('refreshToken', 'fake-refresh-token-' + user.id);
 
                 return ok(account);
             }
 
-            // refresh token
+            // Fix 2 — refresh token finds the correct logged-in user
             if (url.endsWith('/accounts/refresh-token') && method === 'POST') {
                 const rt = localStorage.getItem('refreshToken');
                 if (!rt) return unauthorized();
+
+                // extract user id from token
+                const userId = rt.replace('fake-refresh-token-', '');
                 const users = getUsers();
-                // pick first user for demo
-                const user = users[0];
+                const user = users.find((x: any) => x.id === userId); // ← find correct user
                 if (!user) return unauthorized();
+
                 const jwtToken = generateJwtToken(user);
                 const account = { ...user, jwtToken };
                 return ok(account);
@@ -81,7 +81,6 @@ export class FakeBackendInterceptor implements HttpInterceptor {
                 }
 
                 user.id = Math.floor(Math.random() * 100000).toString();
-                // Default new users to Admin and Verified for development convenience
                 user.role = 'Admin';
                 user.isVerified = true;
                 users.push(user);
@@ -161,10 +160,8 @@ export class FakeBackendInterceptor implements HttpInterceptor {
                 return ok();
             }
 
-            // pass through any requests not handled above
             return next.handle(request);
 
-            // helper functions
             function ok(body?: any) {
                 return of(new HttpResponse({ status: 200, body })) as Observable<HttpEvent<any>>;
             }
@@ -178,17 +175,14 @@ export class FakeBackendInterceptor implements HttpInterceptor {
             }
 
             function isLoggedIn() {
-                // check for fake refresh token existence
                 return !!localStorage.getItem('refreshToken');
             }
         }))
-            // call materialize and dematerialize to ensure delay even if an error is thrown
-            .pipe(materialize(), delay(500), dematerialize());
+        .pipe(materialize(), delay(500), dematerialize());
     }
 }
 
 export const fakeBackendProvider = {
-    // use fake backend in development
     provide: HTTP_INTERCEPTORS,
     useClass: FakeBackendInterceptor,
     multi: true
